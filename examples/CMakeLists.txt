@@ -7,6 +7,7 @@ set(base_examples
     aloha-throughput
     parallel-reception-example
     frame-counter-update
+    class-c-network-example
 )
 
 foreach(
@@ -19,3 +20,4 @@ foreach(
     LIBRARIES_TO_LINK ${liblorawan}
   )
 endforeach()
+

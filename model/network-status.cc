@@ -9,8 +9,11 @@
 
 #include "network-status.h"
 
-#include "class-a-end-device-lorawan-mac.h"
+#include "class-b-end-device-lorawan-mac.h"
+#include "end-device-lorawan-mac.h"
 #include "lora-tag.h"
+
+#include "ns3/simulator.h"
 
 namespace ns3
 {
@@ -42,7 +45,7 @@ NetworkStatus::~NetworkStatus()
 }
 
 void
-NetworkStatus::AddNode(Ptr<ClassAEndDeviceLorawanMac> edMac)
+NetworkStatus::AddNode(Ptr<EndDeviceLorawanMac> edMac)
 {
     NS_LOG_FUNCTION(this << edMac);
 
@@ -51,8 +54,7 @@ NetworkStatus::AddNode(Ptr<ClassAEndDeviceLorawanMac> edMac)
     if (m_endDeviceStatuses.find(edAddress) == m_endDeviceStatuses.end())
     {
         // The device doesn't exist. Create new EndDeviceStatus
-        Ptr<EndDeviceStatus> edStatus =
-            CreateObject<EndDeviceStatus>(edAddress, DynamicCast<ClassAEndDeviceLorawanMac>(edMac));
+        Ptr<EndDeviceStatus> edStatus = CreateObject<EndDeviceStatus>(edAddress, edMac);
 
         // Add it to the map
         m_endDeviceStatuses.insert(
@@ -119,6 +121,11 @@ NetworkStatus::GetBestGatewayForDevice(LoraDeviceAddress deviceAddress, int wind
     {
         replyFrequency = edStatus->GetSecondReceiveWindowFrequency();
     }
+    else if (window == 3)
+    {
+        // Class B ping slot: fixed frequency, same convention as the beacon channel.
+        replyFrequency = ClassBEndDeviceLorawanMac::BEACON_FREQUENCY_HZ;
+    }
     else
     {
         NS_ABORT_MSG("Invalid window value");
@@ -175,6 +182,10 @@ NetworkStatus::GetReplyForDevice(LoraDeviceAddress edAddress, int windowNumber)
         tag.SetDataRate(edStatus->GetMac()->GetSecondReceiveWindowDataRate());
         tag.SetFrequency(edStatus->GetSecondReceiveWindowFrequency());
         break;
+    case 3:
+        tag.SetDataRate(ClassBEndDeviceLorawanMac::BEACON_DATA_RATE);
+        tag.SetFrequency(ClassBEndDeviceLorawanMac::BEACON_FREQUENCY_HZ);
+        break;
     }
 
     packet->AddPacketTag(tag);
@@ -189,6 +200,7 @@ NetworkStatus::GetEndDeviceStatus(Ptr<const Packet> packet)
     // Get the address
     LorawanMacHeader mHdr;
     LoraFrameHeader fHdr;
+    fHdr.SetAsUplink();
     Ptr<Packet> myPacket = packet->Copy();
     myPacket->RemoveHeader(mHdr);
     myPacket->RemoveHeader(fHdr);
@@ -227,6 +239,180 @@ NetworkStatus::CountEndDevices()
     NS_LOG_FUNCTION(this);
 
     return m_endDeviceStatuses.size();
+}
+
+void
+NetworkStatus::SendDownlinkToDevice(LoraDeviceAddress edAddress, Ptr<Packet> payload)
+{
+    NS_LOG_FUNCTION(this << edAddress << payload);
+
+    Ptr<EndDeviceStatus> edStatus = m_endDeviceStatuses.at(edAddress);
+
+    // Populate the reply: an unconfirmed, unsolicited downlink with the given payload
+    edStatus->SetReplyPayload(payload);
+    LorawanMacHeader mHdr;
+    mHdr.SetFType(LorawanMacHeader::UNCONFIRMED_DATA_DOWN);
+    edStatus->SetReplyMacHeader(mHdr);
+    LoraFrameHeader fHdr;
+    fHdr.SetAsDownlink();
+    fHdr.SetAck(false);
+    fHdr.SetAddress(edAddress);
+    edStatus->SetReplyFrameHeader(fHdr);
+    edStatus->m_reply.needsReply = true;
+
+    if (edStatus->IsClassC())
+    {
+        // Class C devices are continuously listening: no need to wait for an uplink from this
+        // device, attempt delivery right away.
+        AttemptClassCDelivery(edAddress);
+    }
+    else if (edStatus->IsClassB())
+    {
+        // Class B devices only listen at their own ping slots: attempt delivery timed to land
+        // inside the device's next one.
+        AttemptClassBDelivery(edAddress);
+    }
+    // For Class A devices, the reply above just waits for the device's next reactive
+    // opportunity, handled entirely by the existing NetworkScheduler flow.
+}
+
+void
+NetworkStatus::AttemptClassCDelivery(LoraDeviceAddress edAddress)
+{
+    NS_LOG_FUNCTION(this << edAddress);
+
+    if (!NeedsReply(edAddress))
+    {
+        // Already delivered, e.g. reactively via the device's own next uplink in the meantime.
+        return;
+    }
+
+    // Class C's continuously open receive window is what NetworkScheduler otherwise associates
+    // with "window 2".
+    Address gwAddress = GetBestGatewayForDevice(edAddress, 2);
+    if (gwAddress == Address())
+    {
+        NS_LOG_DEBUG("No suitable gateway found for immediate Class C delivery, retrying in 1s");
+        Simulator::Schedule(Seconds(1), &NetworkStatus::AttemptClassCDelivery, this, edAddress);
+        return;
+    }
+
+    NS_LOG_DEBUG("Found available gateway with address: " << gwAddress);
+    SendThroughGateway(GetReplyForDevice(edAddress, 2), gwAddress);
+    m_endDeviceStatuses.at(edAddress)->InitializeReply();
+}
+
+void
+NetworkStatus::AttemptClassBDelivery(LoraDeviceAddress edAddress)
+{
+    NS_LOG_FUNCTION(this << edAddress);
+
+    if (!NeedsReply(edAddress))
+    {
+        // Already delivered, e.g. reactively via the device's own next uplink in the meantime.
+        return;
+    }
+
+    Ptr<EndDeviceStatus> edStatus = m_endDeviceStatuses.at(edAddress);
+    Ptr<ClassBEndDeviceLorawanMac> classBMac =
+        DynamicCast<ClassBEndDeviceLorawanMac>(edStatus->GetMac());
+    NS_ASSERT_MSG(classBMac, "AttemptClassBDelivery called for a non-Class-B device");
+
+    if (!classBMac->IsSynchronized())
+    {
+        // No beacon time reference (yet, or any longer): the device isn't actually opening any
+        // ping slots right now, so there is no occurrence to target. Retry after giving it a
+        // chance to (re)acquire the beacon.
+        NS_LOG_DEBUG("Device not synchronized to the beacon, retrying Class B delivery in "
+                     << ClassBEndDeviceLorawanMac::BEACON_INTERVAL.As(Time::S));
+        Simulator::Schedule(ClassBEndDeviceLorawanMac::BEACON_INTERVAL,
+                            &NetworkStatus::AttemptClassBDelivery,
+                            this,
+                            edAddress);
+        return;
+    }
+
+    Time targetSlot = NextPingSlotTime(edAddress, classBMac, Simulator::Now());
+    if (targetSlot > Simulator::Now())
+    {
+        NS_LOG_DEBUG("Scheduling Class B delivery at the device's next ping slot: "
+                     << targetSlot.As(Time::S));
+        Simulator::Schedule(targetSlot - Simulator::Now(),
+                            &NetworkStatus::AttemptClassBDelivery,
+                            this,
+                            edAddress);
+        return;
+    }
+
+    // We are exactly at the target ping slot: attempt delivery now.
+    Address gwAddress = GetBestGatewayForDevice(edAddress, 3);
+    if (gwAddress == Address())
+    {
+        NS_LOG_DEBUG("No suitable gateway available at this ping slot, retrying at the next one");
+        Time nextSlot = NextPingSlotTime(edAddress, classBMac, targetSlot + NanoSeconds(1));
+        Simulator::Schedule(nextSlot - Simulator::Now(),
+                            &NetworkStatus::AttemptClassBDelivery,
+                            this,
+                            edAddress);
+        return;
+    }
+
+    NS_LOG_DEBUG("Found available gateway with address: " << gwAddress);
+    SendThroughGateway(GetReplyForDevice(edAddress, 3), gwAddress);
+    edStatus->InitializeReply();
+}
+
+Time
+NetworkStatus::NextPingSlotTime(LoraDeviceAddress edAddress,
+                                Ptr<ClassBEndDeviceLorawanMac> classBMac,
+                                Time notBefore) const
+{
+    uint16_t pingNbSlots =
+        ClassBEndDeviceLorawanMac::PingNbSlots(classBMac->GetPingSlotPeriodicity());
+    Time beaconInterval = ClassBEndDeviceLorawanMac::BEACON_INTERVAL;
+    Time pingPeriod = beaconInterval / pingNbSlots;
+
+    // Beacons are transmitted on a fixed schedule anchored at simulation time 0 (see
+    // GatewayLorawanMac::SendBeacon / ClassBEndDeviceLorawanMac::TimeUntilNextBeaconBoundary):
+    // the period containing notBefore starts at the largest multiple of beaconInterval not
+    // exceeding it.
+    int64_t periodIndex = notBefore.GetNanoSeconds() / beaconInterval.GetNanoSeconds();
+    Time periodStart = beaconInterval * periodIndex;
+
+    // At most two iterations in practice: the period containing notBefore, and (only if that
+    // period's own slots are all already behind notBefore) the one right after it.
+    for (;;)
+    {
+        Time offset = ClassBEndDeviceLorawanMac::ComputePingOffset(
+            edAddress,
+            static_cast<uint32_t>(periodStart.GetSeconds()),
+            pingPeriod);
+        Time firstSlot = periodStart + offset;
+
+        if (firstSlot >= notBefore)
+        {
+            return firstSlot;
+        }
+
+        int64_t deltaNs = (notBefore - firstSlot).GetNanoSeconds();
+        int64_t periodNs = pingPeriod.GetNanoSeconds();
+        int64_t k = deltaNs / periodNs;
+        if (deltaNs % periodNs != 0)
+        {
+            k += 1;
+        }
+
+        if (k < pingNbSlots)
+        {
+            // Still within this beacon period's own slots (guaranteed < periodStart +
+            // beaconInterval, by the same bound ComputePingOffset() itself relies on).
+            return firstSlot + pingPeriod * k;
+        }
+
+        // This period's slots are exhausted: move to the next period, which has its own,
+        // independently pseudo-random offset (a hash of that period's own beacon time).
+        periodStart += beaconInterval;
+    }
 }
 
 } // namespace lorawan

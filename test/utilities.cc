@@ -34,7 +34,10 @@ CreateChannel()
 }
 
 NodeContainer
-CreateEndDevices(int nDevices, MobilityHelper mobility, Ptr<LoraChannel> channel)
+CreateEndDevices(int nDevices,
+                 MobilityHelper mobility,
+                 Ptr<LoraChannel> channel,
+                 LorawanMacHelper::DeviceType deviceType)
 {
     // Create the LoraPhyHelper
     LoraPhyHelper phyHelper = LoraPhyHelper();
@@ -55,7 +58,7 @@ CreateEndDevices(int nDevices, MobilityHelper mobility, Ptr<LoraChannel> channel
 
     // Create the LoraNetDevices of the end devices
     phyHelper.SetDeviceType(LoraPhyHelper::ED);
-    macHelper.SetDeviceType(LorawanMacHelper::ED_A);
+    macHelper.SetDeviceType(deviceType);
     helper.Install(phyHelper, macHelper, endDevices);
 
     return endDevices;
@@ -121,7 +124,7 @@ CreateNetworkServer(NodeContainer endDevices, NodeContainer gateways)
 }
 
 NetworkComponents
-InitializeNetwork(int nDevices, int nGateways)
+InitializeNetwork(int nDevices, int nGateways, LorawanMacHelper::DeviceType deviceType)
 {
     // This function sets up a network with some devices and some gateways, and
     // returns the created nodes through a NetworkComponents struct.
@@ -138,11 +141,17 @@ InitializeNetwork(int nDevices, int nGateways)
                                   DoubleValue(0.0));
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
-    NodeContainer endDevices = CreateEndDevices(nDevices, mobility, channel);
+    NodeContainer endDevices = CreateEndDevices(nDevices, mobility, channel, deviceType);
 
     NodeContainer gateways = CreateGateways(nGateways, mobility, channel);
 
-    LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateways, channel);
+    // SetSpreadingFactorsUp() DynamicCasts to ClassAEndDeviceLorawanMac internally: it's a
+    // Class-A-specific optimization utility, out of scope for this change. Class C devices keep
+    // whatever data rate EndDeviceLorawanMac's constructor default sets.
+    if (deviceType == LorawanMacHelper::ED_A)
+    {
+        LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateways, channel);
+    }
 
     Ptr<Node> nsNode = CreateNetworkServer(endDevices, gateways);
 

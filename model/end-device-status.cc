@@ -9,7 +9,9 @@
 
 #include "end-device-status.h"
 
-#include "class-a-end-device-lorawan-mac.h"
+#include "class-b-end-device-lorawan-mac.h"
+#include "class-c-end-device-lorawan-mac.h"
+#include "end-device-lorawan-mac.h"
 #include "lora-tag.h"
 
 #include "ns3/simulator.h"
@@ -32,7 +34,7 @@ EndDeviceStatus::GetTypeId()
 }
 
 EndDeviceStatus::EndDeviceStatus(LoraDeviceAddress endDeviceAddress,
-                                 Ptr<ClassAEndDeviceLorawanMac> endDeviceMac)
+                                 Ptr<EndDeviceLorawanMac> endDeviceMac)
     : m_reply(EndDeviceStatus::Reply()),
       m_endDeviceAddress(endDeviceAddress),
       m_receivedPacketList(ReceivedPacketList()),
@@ -156,10 +158,22 @@ EndDeviceStatus::GetReplyPayload()
     return m_reply.payload->Copy();
 }
 
-Ptr<ClassAEndDeviceLorawanMac>
+Ptr<EndDeviceLorawanMac>
 EndDeviceStatus::GetMac()
 {
     return m_mac;
+}
+
+bool
+EndDeviceStatus::IsClassC() const
+{
+    return bool(DynamicCast<ClassCEndDeviceLorawanMac>(m_mac));
+}
+
+bool
+EndDeviceStatus::IsClassB() const
+{
+    return bool(DynamicCast<ClassBEndDeviceLorawanMac>(m_mac));
 }
 
 EndDeviceStatus::ReceivedPacketList
@@ -265,7 +279,7 @@ EndDeviceStatus::InsertReceivedPacket(Ptr<const Packet> receivedPacket, const Ad
         LorawanMacHeader currentMacHdr;
         packetCopy->RemoveHeader(currentMacHdr);
         LoraFrameHeader currentFrameHdr;
-        frameHdr.SetAsUplink();
+        currentFrameHdr.SetAsUplink();
         packetCopy->RemoveHeader(currentFrameHdr);
 
         NS_LOG_DEBUG("Received packet's frame counter: " << unsigned(frameHdr.GetFCnt())
@@ -369,13 +383,21 @@ EndDeviceStatus::RemoveReceiveWindowOpportunity()
 std::map<double, Address>
 EndDeviceStatus::GetPowerGatewayMap()
 {
+    std::map<double, Address> gatewayPowers;
+
+    if (m_receivedPacketList.empty())
+    {
+        // This device has never sent an uplink, so there is no reception info to build the map
+        // from. Return an empty map; callers treat this the same as "no gateway available".
+        NS_LOG_WARN("No packet ever received from this device, cannot build a gateway map");
+        return gatewayPowers;
+    }
+
     // Create a map of the gateways
     // Key: received power
     // Value: address of the corresponding gateway
     ReceivedPacketInfo info = m_receivedPacketList.back().second;
     GatewayList gwList = info.gwList;
-
-    std::map<double, Address> gatewayPowers;
 
     for (auto it = gwList.begin(); it != gwList.end(); it++)
     {

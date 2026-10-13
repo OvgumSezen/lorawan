@@ -9,7 +9,10 @@
 #include "lorawan-mac-helper.h"
 
 #include "ns3/class-a-end-device-lorawan-mac.h"
+#include "ns3/class-b-end-device-lorawan-mac.h"
+#include "ns3/class-c-end-device-lorawan-mac.h"
 #include "ns3/end-device-lora-phy.h"
+#include "ns3/end-device-lorawan-mac.h"
 #include "ns3/gateway-lora-phy.h"
 #include "ns3/gateway-lorawan-mac.h"
 #include "ns3/lora-net-device.h"
@@ -44,6 +47,12 @@ LorawanMacHelper::SetDeviceType(enum DeviceType dt)
     case ED_A:
         m_mac.SetTypeId("ns3::ClassAEndDeviceLorawanMac");
         break;
+    case ED_C:
+        m_mac.SetTypeId("ns3::ClassCEndDeviceLorawanMac");
+        break;
+    case ED_B:
+        m_mac.SetTypeId("ns3::ClassBEndDeviceLorawanMac");
+        break;
     }
     m_deviceType = dt;
 }
@@ -62,23 +71,42 @@ LorawanMacHelper::SetRegion(enum LorawanMacHelper::Regions region)
     m_region = region;
 }
 
+void
+LorawanMacHelper::EnableBeaconing(NodeContainer gateways) const
+{
+    NS_LOG_FUNCTION(this);
+
+    for (auto gw = gateways.Begin(); gw != gateways.End(); ++gw)
+    {
+        Ptr<LoraNetDevice> loraNetDevice = DynamicCast<LoraNetDevice>((*gw)->GetDevice(0));
+        NS_ASSERT_MSG(loraNetDevice,
+                      "EnableBeaconing() requires a LoraNetDevice to already be "
+                      "installed on every node (see LoraHelper::Install())");
+        Ptr<GatewayLorawanMac> gwMac = DynamicCast<GatewayLorawanMac>(loraNetDevice->GetMac());
+        NS_ASSERT_MSG(gwMac,
+                      "EnableBeaconing() can only be called on gateway nodes (i.e., "
+                      "installed with SetDeviceType(GW))");
+        gwMac->SetBeaconEnabled(true);
+    }
+}
+
 Ptr<LorawanMac>
 LorawanMacHelper::Install(Ptr<Node> node, Ptr<NetDevice> device) const
 {
     Ptr<LorawanMac> mac = m_mac.Create<LorawanMac>();
     mac->SetDevice(device);
 
-    // If we are operating on an end device, add an address to it
-    if (m_deviceType == ED_A && m_addrGen)
+    // If we are operating on an end device (any class), add an address to it
+    if ((m_deviceType == ED_A || m_deviceType == ED_C || m_deviceType == ED_B) && m_addrGen)
     {
-        DynamicCast<ClassAEndDeviceLorawanMac>(mac)->SetDeviceAddress(m_addrGen->NextAddress());
+        DynamicCast<EndDeviceLorawanMac>(mac)->SetDeviceAddress(m_addrGen->NextAddress());
     }
 
     // Add a basic list of channels based on the region where the device is
     // operating
-    if (m_deviceType == ED_A)
+    if (m_deviceType == ED_A || m_deviceType == ED_C || m_deviceType == ED_B)
     {
-        Ptr<ClassAEndDeviceLorawanMac> edMac = DynamicCast<ClassAEndDeviceLorawanMac>(mac);
+        Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(mac);
         switch (m_region)
         {
         case LorawanMacHelper::EU: {
@@ -126,7 +154,7 @@ LorawanMacHelper::Install(Ptr<Node> node, Ptr<NetDevice> device) const
 }
 
 void
-LorawanMacHelper::ConfigureForAlohaRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const
+LorawanMacHelper::ConfigureForAlohaRegion(Ptr<EndDeviceLorawanMac> edMac) const
 {
     NS_LOG_FUNCTION_NOARGS();
 
@@ -223,7 +251,7 @@ LorawanMacHelper::ApplyCommonAlohaConfigurations(Ptr<LorawanMac> lorawanMac) con
 }
 
 void
-LorawanMacHelper::ConfigureForEuRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const
+LorawanMacHelper::ConfigureForEuRegion(Ptr<EndDeviceLorawanMac> edMac) const
 {
     NS_LOG_FUNCTION_NOARGS();
 
@@ -340,7 +368,7 @@ LorawanMacHelper::ApplyCommonEuConfigurations(Ptr<LorawanMac> lorawanMac) const
 ///////////////////////////////
 
 void
-LorawanMacHelper::ConfigureForSingleChannelRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const
+LorawanMacHelper::ConfigureForSingleChannelRegion(Ptr<EndDeviceLorawanMac> edMac) const
 {
     NS_LOG_FUNCTION_NOARGS();
 

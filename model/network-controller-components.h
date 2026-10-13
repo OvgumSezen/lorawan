@@ -143,6 +143,49 @@ class LinkCheckComponent : public NetworkControllerComponent
   private:
 };
 
+/**
+ * @ingroup lorawan
+ *
+ * Network controller component for Class B PingSlotInfoReq/Ans management.
+ *
+ * PingSlotInfoReq is device-initiated (mirroring LinkCheckReq/Ans, not a
+ * network-requested setting): a Class B device declares its own configured ping slot
+ * periodicity, and the network server's PingSlotInfoAns only acknowledges receipt. There
+ * is nothing to store server-side beyond that acknowledgment, since the periodicity itself
+ * is read on demand from the device's own MAC layer wherever it is needed (e.g. to compute
+ * ping slot timing for a downlink).
+ */
+class ClassBComponent : public NetworkControllerComponent
+{
+  public:
+    /**
+     *  Register this type.
+     *  @return The object TypeId.
+     */
+    static TypeId GetTypeId();
+
+    ClassBComponent();           //!< Default constructor
+    ~ClassBComponent() override; //!< Destructor
+
+    /**
+     * This method checks whether the received packet carries a PingSlotInfoReq, so that
+     * BeforeSendingReply can queue the appropriate PingSlotInfoAns.
+     *
+     * @param packet The newly received packet.
+     * @param status A pointer to the EndDeviceStatus object of the sender.
+     * @param networkStatus A pointer to the NetworkStatus object.
+     */
+    void OnReceivedPacket(Ptr<const Packet> packet,
+                          Ptr<EndDeviceStatus> status,
+                          Ptr<NetworkStatus> networkStatus) override;
+
+    void BeforeSendingReply(Ptr<EndDeviceStatus> status, Ptr<NetworkStatus> networkStatus) override;
+
+    void OnFailedReply(Ptr<EndDeviceStatus> status, Ptr<NetworkStatus> networkStatus) override;
+
+  private:
+};
+
 } // namespace lorawan
 } // namespace ns3
 

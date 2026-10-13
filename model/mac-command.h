@@ -40,7 +40,9 @@ enum MacCommandType
     TX_PARAM_SETUP_REQ,
     TX_PARAM_SETUP_ANS,
     DL_CHANNEL_REQ,
-    DL_CHANNEL_ANS
+    DL_CHANNEL_ANS,
+    PING_SLOT_INFO_REQ,
+    PING_SLOT_INFO_ANS
 };
 
 /**
@@ -743,6 +745,62 @@ class DlChannelAns : public MacCommand
     void Print(std::ostream& os) const override;
 
   private:
+};
+
+/**
+ * @ingroup lorawan
+ *
+ * Implementation of the PingSlotInfoReq LoRaWAN MAC command.
+ *
+ * Sent uplink by a Class B end device to inform the network server of the ping slot
+ * periodicity it has configured for itself. Unlike RxParamSetupReq (a network-initiated
+ * downlink request), this command is device-initiated: the network server's
+ * PingSlotInfoAns only acknowledges it, it does not "reply" with the requested value.
+ */
+class PingSlotInfoReq : public MacCommand
+{
+  public:
+    PingSlotInfoReq(); //!< Default constructor
+
+    /**
+     * Constructor providing initialization of all fields.
+     *
+     * @param periodicity The ping slot periodicity, in [0, 7]. The device opens
+     * 2^(7 - periodicity) ping slots per beacon period.
+     */
+    explicit PingSlotInfoReq(uint8_t periodicity);
+
+    void Serialize(Buffer::Iterator& start) const override;
+    uint8_t Deserialize(Buffer::Iterator& start) override;
+    void Print(std::ostream& os) const override;
+
+    /**
+     * Get this command's Periodicity parameter.
+     *
+     * @return The Periodicity parameter, in [0, 7].
+     */
+    uint8_t GetPeriodicity() const;
+
+  private:
+    uint8_t m_periodicity; //!< The Periodicity field, in [0, 7]
+};
+
+/**
+ * @ingroup lorawan
+ *
+ * Implementation of the PingSlotInfoAns LoRaWAN MAC command.
+ *
+ * This command holds no variables, and just consists in the CID: it acknowledges reception
+ * of a PingSlotInfoReq.
+ */
+class PingSlotInfoAns : public MacCommand
+{
+  public:
+    PingSlotInfoAns(); //!< Default constructor
+
+    void Serialize(Buffer::Iterator& start) const override;
+    uint8_t Deserialize(Buffer::Iterator& start) override;
+    void Print(std::ostream& os) const override;
 };
 
 } // namespace lorawan

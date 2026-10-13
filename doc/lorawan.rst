@@ -73,11 +73,21 @@ The Network Server functions as a sink for data coming from all devices, and as
 a controller of the network that can leverage some MAC commands to change
 transmission settings in the End Devices.
 
-End Devices of the most basic type are defined as Class A devices, and are
-currently the only kind of device supported by this module. Class A devices
-perform transmission in a totally asynchronous way, and open two receive windows
-of fixed duration after each transmission to allow the Network Server to
-transmit acknowledgments or MAC commands.
+End Devices of the most basic type are defined as Class A devices. Class A
+devices perform transmission in a totally asynchronous way, and open two
+receive windows of fixed duration after each transmission to allow the
+Network Server to transmit acknowledgments or MAC commands. Class C devices
+behave like Class A devices with respect to their own transmissions, but
+additionally keep their receiver open continuously whenever they are not
+transmitting, at the cost of a much higher energy consumption. Class B
+devices also behave like Class A devices with respect to their own
+transmissions, but additionally synchronize to a network-wide time reference
+distributed by the Gateways via periodic beacons, and briefly open a receiver
+window (a "ping slot") at a scheduled point in every beacon period, allowing
+the Network Server to reach them without waiting for their next own
+transmission, at a much lower energy cost than Class C's continuous
+listening. Class A, Class B, and Class C devices are all supported by this
+module.
 
 Another important characteristic of the standard is that it is defined to work
 on unlicensed bands in various regions, which usually subject transmitters to
@@ -103,8 +113,9 @@ To represent these two models, the module features two generic ``LoraPhy`` and
 model the peculiarities of the two wireless network devices: the End Device (ED)
 and the Gateway (GW). So, the PHY layers can be modeled by use of
 ``EndDeviceLoraPhy`` and ``GatewayLoraPhy`` classes, while objects of class
-``EndDeviceLorawanMac``, ``ClassAEndDeviceLorawanMac``, and ``GatewayLorawanMac``
-are used to represent the MAC layer. A ``NetworkServer`` application can also be
+``EndDeviceLorawanMac``, ``ClassAEndDeviceLorawanMac``,
+``ClassCEndDeviceLorawanMac``, and ``GatewayLorawanMac`` are used to represent
+the MAC layer. A ``NetworkServer`` application can also be
 installed on a node that will then administer the wireless network through the
 GW's forwarding application, ``Forwarder``, which leverages the gateway's LoRa
 communication capabilities to forward to End Devices the Network Server's
@@ -290,6 +301,93 @@ This time is kept track of on a sub band basis, so that if two channels are
 under the same regulation, a transmission on one of them will also block the
 other one.
 
+Device classes
+##############
+
+The transmission logic (asynchronous uplinks, duty cycle bookkeeping, opening
+RX1 and RX2 after each transmission at the delays and frequencies/data rates
+negotiated through the ``RxParamSetupReq`` MAC command) is common to every End
+Device and lives in the ``EndDeviceLorawanMac`` base class. Device classes are
+implemented as subclasses that only need to specialize what happens once the
+two receive windows close:
+
+- ``ClassAEndDeviceLorawanMac`` puts the PHY layer back to sleep once RX2
+  closes without a reply, and does not listen again until the application
+  layer has another packet to send.
+- ``ClassCEndDeviceLorawanMac`` instead keeps the PHY layer listening on the
+  RX2 frequency and data rate for as long as the device is not transmitting,
+  effectively extending RX2 indefinitely. This relies on a RXCONTINUOUS
+  reception mode added to ``EndDeviceLoraPhy`` (entered through
+  ``EndDeviceLoraPhy::ReceiveContinuous`` and left through
+  ``EndDeviceLoraPhy::StopReceiveContinuous``), in addition to the RXSINGLE
+  mode used for the timed RX1/RX2 windows of both classes. Continuous
+  listening is automatically interrupted whenever the device has to transmit,
+  and resumed once that transmission's own RX1/RX2 sequence concludes.
+- ``ClassBEndDeviceLorawanMac`` keeps the same RX1/RX2 sequence as Class A
+  for its own transmissions, and additionally maintains an independent
+  schedule of beacon-acquisition and ping-slot receive windows, timed off the
+  network's shared beacon epoch rather than off the device's own
+  transmissions (see "Beacon acquisition and ping slots" below).
+
+Beacon acquisition and ping slots
+##################################
+
+Gateways with beaconing enabled (``GatewayLorawanMac::BeaconEnabled``, off by
+default, or ``LorawanMacHelper::EnableBeaconing``) broadcast a beacon frame
+(``LoraBeaconHeader``, carrying only a network time field) at a fixed
+interval (``GatewayLorawanMac::BeaconInterval``, 128 s by default, matching
+the real LoRaWAN specification) on a fixed frequency and data rate (869.525
+MHz / DR3, the same channel/data rate real EU868 networks reserve for
+beaconing).
+
+A ``ClassBEndDeviceLorawanMac`` starts trying to acquire the beacon
+immediately at deployment, independent of its own uplink activity (unlike
+Class C's continuous listening, which only starts after the device's first
+own RX1/RX2 sequence completes -- Class B needs no such bootstrap, since the
+beacon schedule is public and shared). Once it successfully receives a
+beacon, the device is considered synchronized (``IsSynchronized()``) and
+immediately computes that beacon period's ping-slot schedule: a device opens
+``2^(7 - periodicity)`` brief receive windows ("ping slots") per beacon
+period, at an interval of ``BeaconInterval / (2^(7 - periodicity))``, where
+``periodicity`` (0-7) is a per-device attribute
+(``ClassBEndDeviceLorawanMac::PingSlotPeriodicity``, default 4, i.e. 8 slots
+per period, one every 16 s) trading off downlink latency against energy
+consumption. Within a beacon period, a device's first ping slot falls at a
+pseudo-random offset after the beacon (computed via a hash of the device's
+address and the beacon's time field, bounded so the last slot of a period
+never collides with the next beacon), deterministically reproducible by both
+the device and the Network Server from public information alone -- no
+protocol exchange of the offset itself is needed. A device that misses two
+consecutive beacons is considered desynchronized and stops opening ping
+slots, but keeps trying to reacquire the beacon indefinitely. A device tells
+the Network Server its configured periodicity via a ``PingSlotInfoReq`` MAC
+command (acknowledged, but not otherwise acted on, by a ``PingSlotInfoAns``);
+this is best-effort and non-blocking, since the Network Server can always
+compute a device's schedule on its own once it knows the periodicity.
+
+The device's own beacon/ping-slot schedule and its own transmit/RX1/RX2
+sequence are independent and can collide: if a beacon or ping-slot window is
+due while the device is busy with its own acknowledgment sequence, that
+occurrence is simply skipped (not retried early); if the application layer
+wants to transmit while a beacon or ping-slot window is open, the
+transmission is deferred briefly instead.
+
+The device class of an End Device is fixed for the whole simulation and
+selected at deployment time, before installing the MAC layer, via
+``LorawanMacHelper::SetDeviceType``; there is no support for a device
+switching class at runtime. Because Class B and Class C devices are each
+reachable outside of the usual reply-to-an-uplink flow (a Class C device at
+almost any time, a Class B device at its next ping slot),
+``NetworkStatus::SendDownlinkToDevice`` lets a ``NetworkServer`` queue a
+downlink for delivery independent of any uplink from the device: for a Class
+A device the packet still waits for that device's next receive window
+opportunity; for a Class C device the Network Server tries to reach a
+gateway and transmit it right away, retrying periodically if none is
+currently available; for a Class B device the Network Server computes the
+device's next ping-slot occurrence and schedules delivery precisely then,
+retrying at the *next* ping-slot occurrence (rather than a blind periodic
+retry) if no gateway is available at that instant.
+
 The Network Server
 ==================
 
@@ -356,7 +454,31 @@ experimental feature, prone to yet undiscovered bugs.
 Device Classes
 ==============
 
-Currently, only Class A End Devices are supported.
+Class A, Class B, and Class C End Devices are all supported
+(``ClassAEndDeviceLorawanMac``, ``ClassBEndDeviceLorawanMac``, and
+``ClassCEndDeviceLorawanMac``, see the "Device classes" part of the MAC
+layer model section above).
+
+Since this module doesn't implement a Join procedure that could otherwise be
+used to signal device activation, a freshly-deployed Class C device does not
+begin listening continuously until it completes its own first RX1/RX2 window
+sequence; until then, it behaves like a Class A device that hasn't
+transmitted yet. Class B devices have no equivalent bootstrap gap, since
+beacon acquisition is driven by the network's shared, publicly-known beacon
+schedule rather than by the device's own transmissions.
+
+A few secondary parts of the Class B specification are not implemented:
+``PingSlotChannelReq``/``BeaconFreqReq`` (the commands that would let the
+network redirect a device's ping-slot/beacon frequency and data rate away
+from the region default), and ``DeviceModeInd`` (which would let a device
+switch class at runtime -- consistent with the fixed-at-deployment class
+selection described above). The missed-beacon threshold that marks a device
+desynchronized is a fixed constant (2), not currently exposed as an
+attribute. Like Class C, the Network Server's per-device ping-slot timing
+calculations read a device's configured periodicity directly from its MAC
+layer object rather than through any actual protocol exchange with the
+device -- an already-accepted simplification that assumes perfect
+synchronization between the two.
 
 Regional parameters
 ===================
@@ -503,6 +625,26 @@ Gateways. The example keeps track of the sent and received packets, and computes
 some statistics at the end of the simulation. No Network Server is used in this
 simulation, since performance metrics are collected through the GW trace sources
 and packets don't require an acknowledgment.
+
+class-c-network-example
+=======================
+
+This example builds a network with a mix of Class A, Class B, and Class C
+End Devices (controlled by ``--fractionClassB``/``--fractionClassC``
+command-line arguments, with the remainder configured as Class A; gateway
+beaconing is enabled automatically whenever at least one Class B device is
+present) connected to a Network Server, each running a ``PeriodicSender``
+application. Besides the usual uplink traffic, the Network Server
+periodically pushes a downlink packet to every device through
+``NetworkStatus::SendDownlinkToDevice``, and the example tracks per-device
+delivery latency and delivery ratio, split by device class, together with
+the energy consumed by each device's radio. It illustrates the trade-off
+between the three classes' downlink reachability: Class A only receives a
+pushed downlink reactively, at its next own uplink; Class B receives it at
+its next scheduled ping slot, trading some latency for energy relative to
+Class C's continuously-open receive window, which delivers with the lowest
+and most predictable latency at the cost of substantially higher average
+energy consumption.
 
 Tests
 *****

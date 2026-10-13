@@ -23,7 +23,7 @@ namespace ns3
 namespace lorawan
 {
 
-class ClassAEndDeviceLorawanMac;
+class EndDeviceLorawanMac;
 
 /**
  * @ingroup lorawan
@@ -180,8 +180,8 @@ class EndDeviceStatus : public Object
      * @param endDeviceAddress Address of the end device.
      * @param endDeviceMac Pointer to the MAC layer of the end device.
      */
-    EndDeviceStatus(LoraDeviceAddress endDeviceAddress,
-                    Ptr<ClassAEndDeviceLorawanMac> endDeviceMac);
+    EndDeviceStatus(LoraDeviceAddress endDeviceAddress, Ptr<EndDeviceLorawanMac> endDeviceMac);
+
 
     /**
      * Get the spreading factor this device is using in the first receive window.
@@ -273,7 +273,29 @@ class EndDeviceStatus : public Object
      *
      * @return A pointer to the MAC layer.
      */
-    Ptr<ClassAEndDeviceLorawanMac> GetMac();
+    Ptr<EndDeviceLorawanMac> GetMac();
+
+    /**
+     * Whether the end device this status refers to is a Class C device.
+     *
+     * Determined on demand from the device's MAC layer type, rather than a separately stored
+     * flag, so it can never drift out of sync with the actual device class.
+     *
+     * @return True if this device's MAC layer is a ClassCEndDeviceLorawanMac, false otherwise
+     * (e.g., for a Class A device).
+     */
+    bool IsClassC() const;
+
+    /**
+     * Whether the end device this status refers to is a Class B device.
+     *
+     * Determined on demand from the device's MAC layer type, rather than a separately stored
+     * flag, so it can never drift out of sync with the actual device class.
+     *
+     * @return True if this device's MAC layer is a ClassBEndDeviceLorawanMac, false otherwise
+     * (e.g., for a Class A device).
+     */
+    bool IsClassB() const;
 
     //////////////////////
     //  Other methods  //
@@ -337,7 +359,8 @@ class EndDeviceStatus : public Object
      * Get the gateways which received the last packet from the end device. Gateways are mapped
      * to their measured reception power of the last packet, in ascending order.
      *
-     * @return The ordered map of reception power values and gateways.
+     * @return The ordered map of reception power values and gateways, or an empty map if this
+     * device has never sent an uplink.
      */
     std::map<double, Address> GetPowerGatewayMap();
 
@@ -365,7 +388,7 @@ class EndDeviceStatus : public Object
 
     /// @note Using this attribute is 'cheating', since we are assuming perfect
     /// synchronization between the info at the device and at the network server
-    Ptr<ClassAEndDeviceLorawanMac> m_mac; //!< Pointer to the MAC layer of this device
+    Ptr<EndDeviceLorawanMac> m_mac; //!< Pointer to the MAC layer of this device
 };
 
 } // namespace lorawan

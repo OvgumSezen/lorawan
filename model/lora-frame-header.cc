@@ -24,7 +24,8 @@ LoraFrameHeader::LoraFrameHeader()
       m_ack(false),
       m_fPending(false),
       m_fOptsLen(0),
-      m_fCnt(0)
+      m_fCnt(0),
+      m_isUplink(false)
 {
 }
 
@@ -173,6 +174,11 @@ LoraFrameHeader::Deserialize(Buffer::Iterator start)
                 command = Create<DlChannelAns>();
                 break;
             }
+            case (0x10): {
+                NS_LOG_DEBUG("Creating a PingSlotInfoReq command");
+                command = Create<PingSlotInfoReq>();
+                break;
+            }
             default: {
                 NS_LOG_ERROR("CID not recognized during deserialization");
             }
@@ -224,10 +230,24 @@ LoraFrameHeader::Deserialize(Buffer::Iterator start)
                 command = Create<TxParamSetupReq>();
                 break;
             }
+            case (0x10): {
+                NS_LOG_DEBUG("Creating a PingSlotInfoAns command");
+                command = Create<PingSlotInfoAns>();
+                break;
+            }
             default: {
                 NS_LOG_ERROR("CID not recognized during deserialization");
             }
             }
+        }
+        if (!command)
+        {
+            // An unrecognized CID leaves no MacCommand to deserialize the rest of this entry
+            // with, and its length is unknown -- stop parsing FOpts rather than desync/crash on
+            // whatever follows. Reachable if m_isUplink was left unset by the caller (this used
+            // to be the trigger, see NetworkStatus::GetEndDeviceStatus()) or on genuinely
+            // malformed input.
+            break;
         }
         byteNumber += command->Deserialize(start);
         m_macCommands.emplace_back(command);
@@ -454,6 +474,24 @@ LoraFrameHeader::AddDevStatusReq()
 {
     NS_LOG_FUNCTION(this);
     auto command = Create<DevStatusReq>();
+    m_macCommands.emplace_back(command);
+    m_fOptsLen += command->GetSerializedSize();
+}
+
+void
+LoraFrameHeader::AddPingSlotInfoReq(uint8_t periodicity)
+{
+    NS_LOG_FUNCTION(this << unsigned(periodicity));
+    auto command = Create<PingSlotInfoReq>(periodicity);
+    m_macCommands.emplace_back(command);
+    m_fOptsLen += command->GetSerializedSize();
+}
+
+void
+LoraFrameHeader::AddPingSlotInfoAns()
+{
+    NS_LOG_FUNCTION(this);
+    auto command = Create<PingSlotInfoAns>();
     m_macCommands.emplace_back(command);
     m_fOptsLen += command->GetSerializedSize();
 }

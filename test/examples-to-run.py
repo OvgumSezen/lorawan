@@ -15,6 +15,12 @@ cpp_examples = [
     ("aloha-throughput", "True", "True"),
     ("parallel-reception-example", "True", "True"),
     ("frame-counter-update", "True", "True"),
+    (
+        "class-c-network-example --simulationTime=120s --appPeriod=15s --downlinkPeriod=20s "
+        "--fractionClassB=0.34",
+        "True",
+        "True",
+    ),
 ]
 
 # A list of Python examples to run in order to ensure that they remain

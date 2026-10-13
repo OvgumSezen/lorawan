@@ -134,6 +134,38 @@ EndDeviceLoraPhy::ReceiveSingle(uint32_t frequencyHz,
 }
 
 void
+EndDeviceLoraPhy::ReceiveContinuous(uint32_t frequencyHz,
+                                    IQPolarity iqPolarity,
+                                    uint8_t spreadingFactor,
+                                    uint32_t bandwidthHz)
+{
+    NS_LOG_FUNCTION(this);
+    // Write hardware registers of the LoRa chip
+    m_regs.frequencyHz = frequencyHz;
+    m_regs.bandwidthHz = bandwidthHz;
+    m_regs.iqPolarity = iqPolarity;
+    m_regs.spreadingFactor = spreadingFactor;
+    // No timeout callback: this reception attempt never times out
+    m_rxTimeoutCallback = RxTimeoutCallback();
+    // Enter RXCONTINUOUS mode
+    RequestRxContinuousMode();
+}
+
+void
+EndDeviceLoraPhy::StopReceiveContinuous()
+{
+    NS_LOG_FUNCTION(this);
+    if (m_state != State::RX_ENABLED || !m_rxContinuous)
+    {
+        NS_LOG_ERROR("Cannot stop continuous reception from m_state="
+                     << m_state << ", m_rxContinuous=" << m_rxContinuous);
+        return;
+    }
+    m_rxContinuous = false;
+    SwitchToStandBy();
+}
+
+void
 EndDeviceLoraPhy::RegisterListener(const std::shared_ptr<EndDeviceLoraPhyListener>& listener)
 {
     m_listeners.emplace_back(listener);
@@ -192,10 +224,20 @@ EndDeviceLoraPhy::RequestRxSingleMode()
 {
     NS_LOG_FUNCTION(this);
     // rx single mode: switch to RX_ENABLED + start HW timer
+    m_rxContinuous = false;
     SwitchToRxEnabled();
     auto tSym = GetTSym(m_regs.spreadingFactor, m_regs.bandwidthHz);
     m_rxTimeoutEvent =
         Simulator::Schedule(m_regs.symbNumTimeout * tSym, &EndDeviceLoraPhy::RxTimeout, this);
+}
+
+void
+EndDeviceLoraPhy::RequestRxContinuousMode()
+{
+    NS_LOG_FUNCTION(this);
+    // rx continuous mode: switch to RX_ENABLED, no HW timer is started
+    m_rxContinuous = true;
+    SwitchToRxEnabled();
 }
 
 void
@@ -214,6 +256,12 @@ EndDeviceLoraPhy::DoEndReceive()
     NS_ASSERT_MSG(m_state == State::RX_ACTIVE,
                   "Improper switch to STANDBY from m_state=" << m_state);
     SwitchToStandBy();
+    if (m_rxContinuous)
+    {
+        // In RXCONTINUOUS mode, listening resumes automatically after each reception, on the
+        // same channel parameters, without arming a new RX timeout.
+        RequestRxContinuousMode();
+    }
 }
 
 // private

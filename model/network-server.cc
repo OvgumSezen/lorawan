@@ -9,7 +9,7 @@
 
 #include "network-server.h"
 
-#include "class-a-end-device-lorawan-mac.h"
+#include "end-device-lorawan-mac.h"
 #include "gateway-lorawan-mac.h"
 #include "lora-net-device.h"
 #include "network-controller-components.h"
@@ -129,8 +129,8 @@ NetworkServer::AddNode(Ptr<Node> node)
     }
 
     // Get the MAC
-    Ptr<ClassAEndDeviceLorawanMac> edLorawanMac =
-        DynamicCast<ClassAEndDeviceLorawanMac>(loraNetDevice->GetMac());
+    Ptr<EndDeviceLorawanMac> edLorawanMac =
+        DynamicCast<EndDeviceLorawanMac>(loraNetDevice->GetMac());
 
     // Update the NetworkStatus about the existence of this node
     m_status->AddNode(edLorawanMac);

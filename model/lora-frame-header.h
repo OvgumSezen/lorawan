@@ -285,6 +285,18 @@ class LoraFrameHeader : public Header
     void AddDevStatusReq();
 
     /**
+     * Add a PingSlotInfoReq command.
+     *
+     * @param periodicity The ping slot periodicity to declare, in [0, 7].
+     */
+    void AddPingSlotInfoReq(uint8_t periodicity);
+
+    /**
+     * Add a PingSlotInfoAns command.
+     */
+    void AddPingSlotInfoAns();
+
+    /**
      * Add a NewChannelReq command with provided fields.
      *
      * @param chIndex The ChIndex field.
@@ -328,7 +340,10 @@ class LoraFrameHeader : public Header
     std::vector<Ptr<MacCommand>> m_macCommands; //!< Vector containing all the MacCommand instances
                                                 //!< that are contained in this LoraFrameHeader
 
-    bool m_isUplink; //!< Whether this frame header is uplink or not
+    bool m_isUplink; //!< Whether this frame header is uplink or not. Defaults to false
+                     //!< (downlink); callers deserializing an uplink frame must call
+                     //!< SetAsUplink() first, since Deserialize() uses this to pick between two
+                     //!< CID tables that are not interchangeable.
 };
 
 template <typename T>

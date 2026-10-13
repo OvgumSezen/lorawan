@@ -9,6 +9,8 @@ set(source_files
     model/gateway-lorawan-mac.cc
     model/end-device-lorawan-mac.cc
     model/class-a-end-device-lorawan-mac.cc
+    model/class-b-end-device-lorawan-mac.cc
+    model/class-c-end-device-lorawan-mac.cc
     model/gateway-lora-phy.cc
     model/end-device-lora-phy.cc
     model/simple-end-device-lora-phy.cc
@@ -25,6 +27,7 @@ set(source_files
     model/lora-device-address.cc
     model/lora-device-address-generator.cc
     model/lora-tag.cc
+    model/lora-beacon-header.cc
     model/network-server.cc
     model/network-status.cc
     model/network-controller.cc
@@ -59,6 +62,8 @@ set(header_files
     model/gateway-lorawan-mac.h
     model/end-device-lorawan-mac.h
     model/class-a-end-device-lorawan-mac.h
+    model/class-b-end-device-lorawan-mac.h
+    model/class-c-end-device-lorawan-mac.h
     model/gateway-lora-phy.h
     model/end-device-lora-phy.h
     model/simple-end-device-lora-phy.h
@@ -75,6 +80,7 @@ set(header_files
     model/lora-device-address.h
     model/lora-device-address-generator.h
     model/lora-tag.h
+    model/lora-beacon-header.h
     model/network-server.h
     model/network-status.h
     model/network-controller.h

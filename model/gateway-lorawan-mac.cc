@@ -8,10 +8,14 @@
 
 #include "gateway-lorawan-mac.h"
 
+#include "lora-beacon-header.h"
 #include "lora-net-device.h"
 #include "lora-phy.h"
 #include "lora-tag.h"
 #include "lorawan-mac-header.h"
+
+#include "ns3/boolean.h"
+#include "ns3/simulator.h"
 
 namespace ns3
 {
@@ -25,14 +29,31 @@ NS_OBJECT_ENSURE_REGISTERED(GatewayLorawanMac);
 TypeId
 GatewayLorawanMac::GetTypeId()
 {
-    static TypeId tid = TypeId("ns3::GatewayLorawanMac")
-                            .SetParent<LorawanMac>()
-                            .AddConstructor<GatewayLorawanMac>()
-                            .SetGroupName("lorawan");
+    static TypeId tid =
+        TypeId("ns3::GatewayLorawanMac")
+            .SetParent<LorawanMac>()
+            .AddConstructor<GatewayLorawanMac>()
+            .SetGroupName("lorawan")
+            .AddAttribute("BeaconInterval",
+                          "The interval between consecutive Class B beacon transmissions "
+                          "from this gateway.",
+                          TimeValue(Seconds(128)),
+                          MakeTimeAccessor(&GatewayLorawanMac::m_beaconInterval),
+                          MakeTimeChecker())
+            .AddAttribute("BeaconEnabled",
+                          "Whether this gateway periodically transmits Class B beacons. "
+                          "Toggling this (including via the attribute system) starts or "
+                          "stops beacon transmission immediately.",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&GatewayLorawanMac::SetBeaconEnabled,
+                                              &GatewayLorawanMac::GetBeaconEnabled),
+                          MakeBooleanChecker());
     return tid;
 }
 
 GatewayLorawanMac::GatewayLorawanMac()
+    : m_beaconEnabled(false),
+      m_beaconInterval(Seconds(128))
 {
     NS_LOG_FUNCTION(this);
 }
@@ -148,6 +169,62 @@ void
 GatewayLorawanMac::FailedReception(Ptr<const Packet> packet)
 {
     NS_LOG_FUNCTION(this << packet);
+}
+
+void
+GatewayLorawanMac::SetBeaconEnabled(bool enable)
+{
+    NS_LOG_FUNCTION(this << enable);
+
+    if (m_beaconEnabled == enable)
+    {
+        return;
+    }
+
+    m_beaconEnabled = enable;
+
+    if (m_beaconEnabled)
+    {
+        // Send the first beacon right away (i.e., whenever beaconing gets enabled); every
+        // later one is spaced out by m_beaconInterval, from within SendBeacon() itself.
+        m_nextBeacon = Simulator::Schedule(Seconds(0), &GatewayLorawanMac::SendBeacon, this);
+    }
+    else if (m_nextBeacon.IsPending())
+    {
+        m_nextBeacon.Cancel();
+    }
+}
+
+bool
+GatewayLorawanMac::GetBeaconEnabled() const
+{
+    NS_LOG_FUNCTION(this);
+
+    return m_beaconEnabled;
+}
+
+void
+GatewayLorawanMac::SendBeacon()
+{
+    NS_LOG_FUNCTION(this);
+
+    LoraBeaconHeader beaconHdr;
+    beaconHdr.SetTime(static_cast<uint32_t>(Simulator::Now().GetSeconds()));
+
+    Ptr<Packet> packet = Create<Packet>(0);
+    packet->AddHeader(beaconHdr);
+
+    LoraTag tag;
+    tag.SetDataRate(BEACON_DATA_RATE);
+    tag.SetFrequency(BEACON_FREQUENCY_HZ);
+    packet->AddPacketTag(tag);
+
+    // Reuses the regular Send() path: normal duty-cycle bookkeeping applies, and if it
+    // happens to block this particular beacon, Send() logs a warning and drops just this
+    // one -- the next attempt below is scheduled unconditionally regardless.
+    Send(packet);
+
+    m_nextBeacon = Simulator::Schedule(m_beaconInterval, &GatewayLorawanMac::SendBeacon, this);
 }
 
 } // namespace lorawan

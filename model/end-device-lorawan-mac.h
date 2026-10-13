@@ -206,6 +206,44 @@ class EndDeviceLorawanMac : public LorawanMac
      */
     uint16_t GetUplinkFrameCounter() const;
 
+    /**
+     * Set the data rate to be used in the second receive window.
+     *
+     * @param dataRate The data rate.
+     */
+    void SetSecondReceiveWindowDataRate(uint8_t dataRate);
+
+    /**
+     * Get the data rate that will be used in the second receive window.
+     *
+     * @return The data rate.
+     */
+    uint8_t GetSecondReceiveWindowDataRate() const;
+
+    /**
+     * Set the frequency that will be used for the second receive window.
+     *
+     * @param frequencyHz The Frequency.
+     */
+    void SetSecondReceiveWindowFrequency(uint32_t frequencyHz);
+
+    /**
+     * Get the frequency that is used for the second receive window.
+     *
+     * @return The frequency, in Hz.
+     */
+    uint32_t GetSecondReceiveWindowFrequency() const;
+
+    /**
+     * Get the data rate that will be used in the first receive window.
+     *
+     * Common to every device class implementation: RX1 always replies on a data rate derived
+     * from the uplink data rate and the RX1DROffset parameter, regardless of device class.
+     *
+     * @return The data rate.
+     */
+    uint8_t GetFirstReceiveWindowDataRate();
+
   protected:
     /**
      * Current packet transmission context tracking transmissions attempts mandated by the protocol
@@ -307,6 +345,21 @@ class EndDeviceLorawanMac : public LorawanMac
      * for EU868 LoRaWAN Network Operation )
      */
     uint8_t m_receiveWindowDurationInSymbols;
+
+    // First receive window parameter. Common to every device class implementation: the RX1DROffset
+    // parameter that determines, together with the uplink data rate, the data rate used for the
+    // (potentially class-specific) first receive window.
+
+    uint8_t m_rx1DrOffset; //!< The RX1DROffset parameter value.
+
+    // Second receive window parameters. Common to every device class implementation, since all
+    // of them use a (potentially class-specific) second receive window with fixed frequency and
+    // data rate as a fallback in case reception was not possible on the first receive window.
+
+    uint32_t m_secondReceiveWindowFrequencyHz; //!< The frequency [Hz] to listen on for the second
+                                               //!< receive window.
+    uint8_t m_secondReceiveWindowDataRate;     //!< The data rate to listen for during the second
+                                               //!< downlink transmission.
 
     double m_lastRxSnr; //!< Record latest reception SNR measurement to provide via DevStatusAns
 

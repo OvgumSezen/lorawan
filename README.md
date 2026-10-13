@@ -86,6 +86,7 @@ The module includes the following examples:
 * `frame-counter-update`
 * `lorawan-energy-model-example`
 * `parallel-reception-example`
+* `class-c-network-example`
 
 Examples can be run via the `./ns3 run example-name` command (refer to `./ns3 run --help` for more options).
 

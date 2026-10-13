@@ -74,13 +74,16 @@ class EndDeviceLoraPhyListener
  *
  * This class inherits the base functions of LoraPhy, like the GetTimeOnAir function, and provides
  * Radio Abstraction Layer (RAL) functionality to parent classes. It also implements a ReceiveSingle
- * function for external classes to start a timed reception attempt.
+ * function for external classes to start a timed reception attempt, and a ReceiveContinuous
+ * function to start an open-ended one.
  *
  * Internally, this class features a State member variable that expresses the current hardware state
  * of the device (SLEEP, STANDBY, TX, RX_ENABLED, RX_ACTIVE), and a structure representing the
- * chip configurations registers. After transmission and reception, the device returns automatically
- * to the STANDBY state. The decision of when to go into SLEEP is delegated to an external class,
- * which can modify the state of the device through the Sleep method.
+ * chip configurations registers. After transmission, the device returns automatically to the
+ * STANDBY state; after reception, it returns to STANDBY too, unless the reception was started via
+ * ReceiveContinuous(), in which case it automatically resumes listening instead (RX_ENABLED). The
+ * decision of when to go into SLEEP is delegated to an external class, which can modify the state
+ * of the device through the Sleep method.
  *
  * Even if could appear at first glance, these states are different from the operating modes defined
  * in the datasheet. Modes are higher level transceiver configurations that can involve multiple
@@ -89,14 +92,16 @@ class EndDeviceLoraPhyListener
  *
  * - Send(): TX mode
  * - ReceiveSingle(): RXSINGLE mode
+ * - ReceiveContinuous(): RXCONTINUOUS mode
  * - Sleep(): SLEEP mode
  *
- * @todo Implementation of the RXCONTINUOUS mode
  * @todo Implementation of the CAD mode
  *
  * The datasheet tells us that you can go from any mode to any other mode, but for simplicity's sake
- * we assume that you are not able to interrupt an ongoing TX or RX window. Moreover, since it
- * currently has no practical use, we do not allow manually switching to STANDBY mode.
+ * we assume that you are not able to interrupt an ongoing TX or RX window (there is no way to abort
+ * a reception once RX_ACTIVE). Manually switching to STANDBY mode is otherwise only allowed out of
+ * an idle RXCONTINUOUS-mode listening state (RX_ENABLED reached via ReceiveContinuous()), via
+ * StopReceiveContinuous(); it has no other practical use.
  *
  * Transitions marked with 'a' are automatic:
  * @verbatim
@@ -115,6 +120,11 @@ class EndDeviceLoraPhyListener
  *             | RX_ACTIVE |
  *             +-----------+
  * @endverbatim
+ *
+ * The diagram above depicts RXSINGLE-mode behavior. In RXCONTINUOUS mode, two transitions differ:
+ * RX_ACTIVE automatically returns to RX_ENABLED (not STANDBY) after each reception concludes, and
+ * RX_ENABLED can additionally be left manually via StopReceiveContinuous() (in addition to the
+ * automatic RXSINGLE-mode timeout, which does not apply in RXCONTINUOUS mode).
  *
  * Peculiarities about the radio error model and about how errors are supposed to be handled during
  * transmission and reception are left to classes extending this one, like SimpleEndDeviceLoraPhy or
@@ -172,10 +182,11 @@ class EndDeviceLoraPhy : public LoraPhy
          * If a premble is found, the PHY transitions to RX_ACTIVE and starts receiving a packet.
          * Otherwise, the PHY remains in this state until manually reset to STANDBY.
          *
-         * In RXSINGLE mode an interrupt to STANDBY is usually scheduled after a certain amount of
-         * time to create a reception window.
-         *
-         * @todo In RXCONTINUOUS mode, this must be done manually by the user.
+         * In RXSINGLE mode (entered via ReceiveSingle()) an interrupt to STANDBY is automatically
+         * scheduled after a certain amount of time to create a reception window. In RXCONTINUOUS
+         * mode (entered via ReceiveContinuous()) no such interrupt is scheduled: this state is
+         * left either automatically, by locking onto a preamble, or manually, by calling
+         * StopReceiveContinuous().
          */
         RX_ENABLED,
 
@@ -185,9 +196,8 @@ class EndDeviceLoraPhy : public LoraPhy
          * reachable from this one are either STANDBY or RX_ENABLED, and the switch to either should
          * be automatically handled by the chip depending on the mode (RXSINGLE or RXCONTINUOUS).
          *
-         * In RXSINGLE mode, the PHY is reset to STANDBY after reception ends.
-         *
-         * @todo In RXCONTINUOUS mode, the PHY goes back to RX_ENABLED instead.
+         * In RXSINGLE mode, the PHY is reset to STANDBY after reception ends. In RXCONTINUOUS mode,
+         * the PHY goes back to RX_ENABLED instead, automatically resuming listening.
          */
         RX_ACTIVE
 
@@ -258,6 +268,38 @@ class EndDeviceLoraPhy : public LoraPhy
                        uint32_t bandwidthHz,
                        uint8_t symbNumTimeout,
                        RxTimeoutCallback rxTimeoutCallback);
+
+    /**
+     * This function starts a reception attempt that does not time out: the PHY keeps
+     * listening indefinitely until a preamble is locked onto (after which, once that
+     * reception concludes, listening automatically resumes) or until StopReceiveContinuous()
+     * is explicitly called. Input parameters are written in the PHY state and used for
+     * reception.
+     *
+     * @note Basic LoRa transceivers as the one modeled here are only able to listen for a
+     * distinct spreading factor on a single frequency channel; all other transmissions will
+     * be discarded.
+     *
+     * @param frequencyHz Expected central frequency [Hz] of the incoming transmission
+     * @param iqPolarity Whether to expect an uplink or downlink signal
+     * @param spreadingFactor Expected Spreading Factor (SF) of the incoming transmission
+     * @param bandwidthHz Expected bandwidth [Hz] of the incoming transmission
+     */
+    void ReceiveContinuous(uint32_t frequencyHz,
+                           IQPolarity iqPolarity,
+                           uint8_t spreadingFactor,
+                           uint32_t bandwidthHz);
+
+    /**
+     * Stop an ongoing continuous reception attempt started with ReceiveContinuous(), reverting
+     * to STANDBY.
+     *
+     * This only has an effect when in RX_ENABLED state as a result of a previous call to
+     * ReceiveContinuous() (i.e., no preamble is currently locked onto). Parent classes must
+     * ensure that a transmission is not requested while the PHY is in RX_ACTIVE state; there is
+     * no way to abort an ongoing reception.
+     */
+    void StopReceiveContinuous();
 
     /**
      * Add the input listener to the list of objects to be notified of PHY-level
@@ -346,6 +388,18 @@ class EndDeviceLoraPhy : public LoraPhy
     void RequestRxSingleMode();
 
     /**
+     * This function reads RX parameters from the internal registers of the PHY hardware and begins
+     * a reception attempt that does not time out, automatically reverting to RX_ENABLED (instead
+     * of STANDBY) after each reception concludes. Parent classes must take care of calling
+     * DoStartReceive() in case the chip actually starts receiving from the channel during the
+     * reception attempt.
+     *
+     * @warning Before calling this function, parent classes must ensure that the device is in
+     * SLEEP or STANDBY mode: Registers can only be accessed when in these modes.
+     */
+    void RequestRxContinuousMode();
+
+    /**
      * This function should be called by parent classes to signal that the PHY is starting to
      * demodulate a transmission. Internally, it cancels the RX attempt interrupt timeout and
      * switches from RX_ENABLED to RX_ACTIVE. Parent classes must take care of calling
@@ -358,7 +412,9 @@ class EndDeviceLoraPhy : public LoraPhy
 
     /**
      * This function should be called by parent classes to signal that the PHY is finishing to
-     * demodulate a transmission. Internally, it switches from RX_ACTIVE to STANDBY
+     * demodulate a transmission. Internally, it switches from RX_ACTIVE to STANDBY, unless the
+     * reception was started via RequestRxContinuousMode(), in which case it automatically resumes
+     * listening (switches back to RX_ENABLED instead).
      *
      * @warning Before calling this function, parent classes must ensure that the device is in
      * the RX_ACTIVE state
@@ -460,8 +516,10 @@ class EndDeviceLoraPhy : public LoraPhy
      */
     RxTimeoutCallback m_rxTimeoutCallback;
 
-    TracedValue<State> m_state; //!< The state this PHY is currently in.
-    EventId m_rxTimeoutEvent;   //!< Event for timed switch from RX_ENABLED to STANDBY
+    TracedValue<State> m_state;  //!< The state this PHY is currently in.
+    EventId m_rxTimeoutEvent;    //!< Event for timed switch from RX_ENABLED to STANDBY
+    bool m_rxContinuous = false; //!< Whether the current/last RX_ENABLED state was entered via
+                                 //!< RequestRxContinuousMode() rather than RequestRxSingleMode()
 
     Listeners m_listeners; //!< PHY state listeners
 };

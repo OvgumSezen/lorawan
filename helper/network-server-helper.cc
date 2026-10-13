@@ -118,6 +118,10 @@ NetworkServerHelper::InstallComponents(Ptr<NetworkServer> netServer)
     Ptr<LinkCheckComponent> linkCheckSupport = CreateObject<LinkCheckComponent>();
     netServer->AddComponent(linkCheckSupport);
 
+    // Add Class B PingSlotInfoReq/Ans support
+    Ptr<ClassBComponent> classBSupport = CreateObject<ClassBComponent>();
+    netServer->AddComponent(classBSupport);
+
     // Add Adaptive Data Rate (ADR) support
     if (m_adrEnabled)
     {

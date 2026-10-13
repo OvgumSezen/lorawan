@@ -19,7 +19,7 @@ namespace ns3
 namespace lorawan
 {
 
-class ClassAEndDeviceLorawanMac;
+class EndDeviceLorawanMac;
 class GatewayLorawanMac;
 class LorawanMac;
 
@@ -33,12 +33,15 @@ class LorawanMacHelper
 {
   public:
     /**
-     * Define the kind of device. Can be either GW (Gateway) or ED (End Device).
+     * Define the kind of device. Can be either GW (Gateway) or ED (End Device, Class A, B, or
+     * C).
      */
     enum DeviceType
     {
         GW,
-        ED_A
+        ED_A,
+        ED_C,
+        ED_B
     };
 
     /**
@@ -88,6 +91,19 @@ class LorawanMacHelper
      * @param region The region enum value.
      */
     void SetRegion(enum Regions region);
+
+    /**
+     * Enable periodic Class B beacon transmission on every gateway in the input container, by
+     * setting the "BeaconEnabled" attribute on each one's GatewayLorawanMac.
+     *
+     * Explicit opt-in, matching how SetDeviceType() already works: a network with no Class B
+     * end devices has no reason to pay for beacon transmission, so this is never enabled
+     * implicitly by Install().
+     *
+     * @param gateways The gateway nodes whose GatewayLorawanMac should start beaconing. Each
+     * node must already have a LorawanMac (of any type) installed via Install().
+     */
+    void EnableBeaconing(NodeContainer gateways) const;
 
     /**
      * Create the LorawanMac instance and connect it to a device.
@@ -181,7 +197,7 @@ class LorawanMacHelper
      *
      * @param edMac Pointer to the device MAC layer to configure.
      */
-    void ConfigureForEuRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const;
+    void ConfigureForEuRegion(Ptr<EndDeviceLorawanMac> edMac) const;
 
     /**
      * Perform region-specific configurations for the 868 MHz EU band.
@@ -192,7 +208,7 @@ class LorawanMacHelper
 
     /**
      * Apply configurations that are common both for the GatewayLorawanMac and the
-     * ClassAEndDeviceLorawanMac classes.
+     * EndDeviceLorawanMac classes.
      *
      * @param lorawanMac Pointer to the MAC layer to configure.
      */
@@ -203,7 +219,7 @@ class LorawanMacHelper
      *
      * @param edMac Pointer to the device MAC layer to configure.
      */
-    void ConfigureForSingleChannelRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const;
+    void ConfigureForSingleChannelRegion(Ptr<EndDeviceLorawanMac> edMac) const;
 
     /**
      * Perform region-specific configurations for the SINGLECHANNEL band.
@@ -214,7 +230,7 @@ class LorawanMacHelper
 
     /**
      * Apply configurations that are common both for the GatewayLorawanMac and the
-     * ClassAEndDeviceLorawanMac classes.
+     * EndDeviceLorawanMac classes.
      *
      * @param lorawanMac Pointer to the MAC layer to configure.
      */
@@ -225,7 +241,7 @@ class LorawanMacHelper
      *
      * @param edMac Pointer to the device MAC layer to configure.
      */
-    void ConfigureForAlohaRegion(Ptr<ClassAEndDeviceLorawanMac> edMac) const;
+    void ConfigureForAlohaRegion(Ptr<EndDeviceLorawanMac> edMac) const;
 
     /**
      * Perform region-specific configurations for the ALOHA band.
@@ -236,7 +252,7 @@ class LorawanMacHelper
 
     /**
      * Apply configurations that are common both for the GatewayLorawanMac and the
-     * ClassAEndDeviceLorawanMac classes.
+     * EndDeviceLorawanMac classes.
      *
      * @param lorawanMac Pointer to the MAC layer to configure.
      */

@@ -216,5 +216,73 @@ LinkCheckComponent::OnFailedReply(Ptr<EndDeviceStatus> status, Ptr<NetworkStatus
     NS_LOG_FUNCTION(this->GetTypeId() << networkStatus);
 }
 
+///////////////////////
+// ClassBComponent //
+///////////////////////
+TypeId
+ClassBComponent::GetTypeId()
+{
+    static TypeId tid = TypeId("ns3::ClassBComponent")
+                            .SetParent<NetworkControllerComponent>()
+                            .AddConstructor<ClassBComponent>()
+                            .SetGroupName("lorawan");
+    return tid;
+}
+
+ClassBComponent::ClassBComponent()
+{
+}
+
+ClassBComponent::~ClassBComponent()
+{
+}
+
+void
+ClassBComponent::OnReceivedPacket(Ptr<const Packet> packet,
+                                  Ptr<EndDeviceStatus> status,
+                                  Ptr<NetworkStatus> networkStatus)
+{
+    NS_LOG_FUNCTION(this->GetTypeId() << packet << networkStatus);
+
+    // We will only act just before reply, when all Gateways will have received
+    // the packet (mirrors LinkCheckComponent).
+}
+
+void
+ClassBComponent::BeforeSendingReply(Ptr<EndDeviceStatus> status, Ptr<NetworkStatus> networkStatus)
+{
+    NS_LOG_FUNCTION(this << status << networkStatus);
+
+    Ptr<Packet> myPacket = status->GetLastPacketReceivedFromDevice()->Copy();
+    LorawanMacHeader mHdr;
+    LoraFrameHeader fHdr;
+    fHdr.SetAsUplink();
+    myPacket->RemoveHeader(mHdr);
+    myPacket->RemoveHeader(fHdr);
+
+    Ptr<PingSlotInfoReq> command = fHdr.GetMacCommand<PingSlotInfoReq>();
+
+    // GetMacCommand returns 0 if no command is found
+    if (command)
+    {
+        status->m_reply.needsReply = true;
+
+        auto replyCommand = Create<PingSlotInfoAns>();
+        status->m_reply.frameHeader.SetAsDownlink();
+        status->m_reply.frameHeader.AddCommand(replyCommand);
+        status->m_reply.macHeader.SetFType(LorawanMacHeader::UNCONFIRMED_DATA_DOWN);
+    }
+    else
+    {
+        // Do nothing
+    }
+}
+
+void
+ClassBComponent::OnFailedReply(Ptr<EndDeviceStatus> status, Ptr<NetworkStatus> networkStatus)
+{
+    NS_LOG_FUNCTION(this->GetTypeId() << networkStatus);
+}
+
 } // namespace lorawan
 } // namespace ns3

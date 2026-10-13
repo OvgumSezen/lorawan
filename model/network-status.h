@@ -18,6 +18,8 @@ namespace ns3
 namespace lorawan
 {
 
+class ClassBEndDeviceLorawanMac;
+
 /**
  * @ingroup lorawan
  *
@@ -46,7 +48,7 @@ class NetworkStatus : public Object
      *
      * @param edMac Pointer to the MAC layer object of the device to be tracked.
      */
-    void AddNode(Ptr<ClassAEndDeviceLorawanMac> edMac);
+    void AddNode(Ptr<EndDeviceLorawanMac> edMac);
 
     /**
      * Add a new gateway to the list of gateways connected to the network.
@@ -80,7 +82,9 @@ class NetworkStatus : public Object
      * device.
      *
      * @param deviceAddress The address of the device we are interested in.
-     * @param window The device reception window we are currently targeting (1 or 2).
+     * @param window The device reception window we are currently targeting (1 or 2; 3 stands
+     * for a Class B device's ping slot, listened to at a fixed frequency, see
+     * ClassBEndDeviceLorawanMac::BEACON_FREQUENCY_HZ).
      * @return The Address of the gateway which measured the best RSSI of the last packet from the
      * device, selected among the gateways being currently available for downlink transmission.
      */
@@ -102,7 +106,8 @@ class NetworkStatus : public Object
      * Get the reply packet prepared for a reception window of a device.
      *
      * @param edAddress The address of the device.
-     * @param windowNumber The reception window number (1 or 2).
+     * @param windowNumber The reception window number (1 or 2; 3 stands for a Class B device's
+     * ping slot, see GetBestGatewayForDevice()).
      * @return The reply packet.
      */
     Ptr<Packet> GetReplyForDevice(LoraDeviceAddress edAddress, int windowNumber);
@@ -129,6 +134,61 @@ class NetworkStatus : public Object
      * @return The number of end devices as an int.
      */
     int CountEndDevices();
+
+    /**
+     * Queue a downlink to be delivered to a device, independent of any uplink from it.
+     *
+     * For a Class C device, since its second receive window is continuously open, this attempts
+     * immediate delivery, retrying every second until a gateway becomes available. For a Class B
+     * device, sending outside its ping slots is pointless (it isn't listening), so this instead
+     * computes the device's next ping-slot occurrence and schedules delivery precisely then,
+     * retrying at the *next* ping-slot occurrence (not a blind 1-second retry) if no gateway is
+     * available at that instant. For a Class A device, the downlink is simply queued and only
+     * delivered reactively, at the device's next scheduled receive window opportunity (see
+     * NetworkScheduler::OnReceiveWindowOpportunity()), matching real LoRaWAN semantics: a Class A
+     * device cannot receive spontaneously.
+     *
+     * @param edAddress The address of the destination device.
+     * @param payload The downlink payload (FRMPayload) to deliver.
+     */
+    void SendDownlinkToDevice(LoraDeviceAddress edAddress, Ptr<Packet> payload);
+
+  private:
+    /**
+     * Attempt to deliver the currently queued reply to a Class C device, retrying every second
+     * until a gateway becomes available. No-ops if the reply was already delivered (e.g., via
+     * the device's own reactive receive window opportunity) by the time a retry fires.
+     *
+     * @param edAddress The address of the destination device.
+     */
+    void AttemptClassCDelivery(LoraDeviceAddress edAddress);
+
+    /**
+     * Attempt to deliver the currently queued reply to a Class B device at its next ping-slot
+     * occurrence, retrying at the ping-slot occurrence after that if no gateway is available at
+     * that instant. No-ops if the reply was already delivered (e.g., reactively via the device's
+     * own next uplink) by the time this runs. If the device has not (yet, or any longer)
+     * synchronized to the network's beacon, no ping-slot occurrence can be computed at all;
+     * retries after one BeaconInterval to give the device a chance to (re)acquire the beacon.
+     *
+     * @param edAddress The address of the destination device.
+     */
+    void AttemptClassBDelivery(LoraDeviceAddress edAddress);
+
+    /**
+     * Compute the earliest ping-slot occurrence, at or after a given instant, for a Class B
+     * device -- the same deterministic, publicly-computable formula
+     * (ClassBEndDeviceLorawanMac::PingNbSlots()/ComputePingOffset()) the device itself uses,
+     * reading only its configured periodicity from the "cheating" m_mac pointer.
+     *
+     * @param edAddress The address of the device.
+     * @param classBMac The device's Class B MAC layer (passed in since callers already have it).
+     * @param notBefore The earliest acceptable instant for the returned occurrence.
+     * @return The earliest ping-slot occurrence at or after notBefore.
+     */
+    Time NextPingSlotTime(LoraDeviceAddress edAddress,
+                          Ptr<ClassBEndDeviceLorawanMac> classBMac,
+                          Time notBefore) const;
 
   public:
     std::map<LoraDeviceAddress, Ptr<EndDeviceStatus>>

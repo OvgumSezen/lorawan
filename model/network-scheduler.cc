@@ -106,6 +106,22 @@ NetworkScheduler::OnReceiveWindowOpportunity(LoraDeviceAddress deviceAddress, in
                                     deviceAddress,
                                     2)); // This will be the second receive window
     }
+    else if (gwAddress == Address() && window == 2 &&
+             m_status->GetEndDeviceStatus(deviceAddress)->IsClassC())
+    {
+        // Unlike Class A, a Class C device's RX2 never closes: no suitable gateway being
+        // available right now isn't a terminal failure, so retry instead of giving up.
+        NS_LOG_DEBUG("No suitable gateway found on the second receive window for a Class C "
+                     "device: retrying instead of giving up.");
+        m_status->GetEndDeviceStatus(deviceAddress)
+            ->SetReceiveWindowOpportunity(
+                Simulator::Schedule(Seconds(1),
+                                    &NetworkScheduler::OnReceiveWindowOpportunity,
+                                    this,
+                                    deviceAddress,
+                                    2)); // Keep retrying on window 2, Class C's continuously
+                                         // open receive window
+    }
     else if (gwAddress == Address() && window == 2)
     {
         // No suitable gateway was found and this was our last opportunity

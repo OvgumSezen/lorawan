@@ -36,41 +36,6 @@ class ClassAEndDeviceLorawanMac : public EndDeviceLorawanMac
     ClassAEndDeviceLorawanMac();           //!< Default constructor
     ~ClassAEndDeviceLorawanMac() override; //!< Destructor
 
-    /**
-     * Get the data rate that will be used in the first receive window.
-     *
-     * @return The data rate.
-     */
-    uint8_t GetFirstReceiveWindowDataRate();
-
-    /**
-     * Set the data rate to be used in the second receive window.
-     *
-     * @param dataRate The data rate.
-     */
-    void SetSecondReceiveWindowDataRate(uint8_t dataRate);
-
-    /**
-     * Get the data rate that will be used in the second receive window.
-     *
-     * @return The data rate.
-     */
-    uint8_t GetSecondReceiveWindowDataRate() const;
-
-    /**
-     * Set the frequency that will be used for the second receive window.
-     *
-     * @param frequencyHz The Frequency.
-     */
-    void SetSecondReceiveWindowFrequency(uint32_t frequencyHz);
-
-    /**
-     * Get the frequency that is used for the second receive window.
-     *
-     * @return The frequency, in Hz.
-     */
-    uint32_t GetSecondReceiveWindowFrequency() const;
-
   private:
     /**
      * Set of possible outcomes of a reception window
@@ -129,14 +94,9 @@ class ClassAEndDeviceLorawanMac : public EndDeviceLorawanMac
     uint32_t m_firstReceiveWindowFrequencyHz; //!< The frequency [Hz] to listen on for the first
                                               //!< receive window. This value is set dynamically to
                                               //!< the last uplink transmission frequency.
-    uint8_t m_rx1DrOffset;                    //!< The RX1DROffset parameter value.
 
     Time m_receiveDelay2; //!< The interval between when a packet is done sending and when the
                           //!< second receive window is opened.
-    uint32_t m_secondReceiveWindowFrequencyHz; //!< The frequency [Hz] to listen on for the second
-                                               //!< receive window.
-    uint8_t m_secondReceiveWindowDataRate;     //!< The data rate to listen for during the second
-                                               //!< downlink transmission.
 
     // Rescheduling purposes
 

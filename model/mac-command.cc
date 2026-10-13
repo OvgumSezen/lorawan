@@ -85,6 +85,12 @@ MacCommand::GetCIDFromMacCommand(enum MacCommandType commandType)
     case (DL_CHANNEL_ANS): {
         return 0x0A;
     }
+    case (PING_SLOT_INFO_REQ):
+    case (PING_SLOT_INFO_ANS): {
+        // Real spec CID (LoRaWAN L2 1.0.4, Section 5.5), not the next sequential value after
+        // 0x0A, since 0x0B-0x0F are reserved for other (unimplemented) MAC commands.
+        return 0x10;
+    }
     }
     return 0;
 }
@@ -959,7 +965,7 @@ RxTimingSetupAns::Print(std::ostream& os) const
 DlChannelAns::DlChannelAns()
 {
     NS_LOG_FUNCTION(this);
-    m_commandType = DEV_STATUS_REQ;
+    m_commandType = DL_CHANNEL_ANS;
     m_serializedSize = 1;
 }
 
@@ -1049,6 +1055,92 @@ TxParamSetupAns::Print(std::ostream& os) const
 {
     NS_LOG_FUNCTION(this);
     os << "TxParamSetupAns()";
+}
+
+/////////////////////
+// PingSlotInfoReq //
+/////////////////////
+
+PingSlotInfoReq::PingSlotInfoReq()
+{
+    NS_LOG_FUNCTION(this);
+    m_commandType = PING_SLOT_INFO_REQ;
+    m_serializedSize = 2;
+}
+
+PingSlotInfoReq::PingSlotInfoReq(uint8_t periodicity)
+    : m_periodicity(periodicity)
+{
+    NS_LOG_FUNCTION(this << unsigned(periodicity));
+    NS_ASSERT_MSG(!(periodicity & 0xF8), "periodicity field > 3 bits");
+    m_commandType = PING_SLOT_INFO_REQ;
+    m_serializedSize = 2;
+}
+
+void
+PingSlotInfoReq::Serialize(Buffer::Iterator& start) const
+{
+    NS_LOG_FUNCTION(this);
+    start.WriteU8(GetCIDFromMacCommand(m_commandType)); // Write the CID
+    start.WriteU8(m_periodicity & 0b111);
+}
+
+uint8_t
+PingSlotInfoReq::Deserialize(Buffer::Iterator& start)
+{
+    NS_LOG_FUNCTION(this);
+    start.ReadU8(); // Consume the CID
+    m_periodicity = start.ReadU8() & 0b111;
+    return m_serializedSize;
+}
+
+void
+PingSlotInfoReq::Print(std::ostream& os) const
+{
+    NS_LOG_FUNCTION(this);
+    os << "PingSlotInfoReq(";
+    os << "Periodicity=" << unsigned(m_periodicity);
+    os << ")";
+}
+
+uint8_t
+PingSlotInfoReq::GetPeriodicity() const
+{
+    NS_LOG_FUNCTION(this);
+    return m_periodicity;
+}
+
+/////////////////////
+// PingSlotInfoAns //
+/////////////////////
+
+PingSlotInfoAns::PingSlotInfoAns()
+{
+    NS_LOG_FUNCTION(this);
+    m_commandType = PING_SLOT_INFO_ANS;
+    m_serializedSize = 1;
+}
+
+void
+PingSlotInfoAns::Serialize(Buffer::Iterator& start) const
+{
+    NS_LOG_FUNCTION(this);
+    start.WriteU8(GetCIDFromMacCommand(m_commandType)); // Write the CID
+}
+
+uint8_t
+PingSlotInfoAns::Deserialize(Buffer::Iterator& start)
+{
+    NS_LOG_FUNCTION(this);
+    start.ReadU8(); // Consume the CID
+    return m_serializedSize;
+}
+
+void
+PingSlotInfoAns::Print(std::ostream& os) const
+{
+    NS_LOG_FUNCTION(this);
+    os << "PingSlotInfoAns()";
 }
 
 } // namespace lorawan

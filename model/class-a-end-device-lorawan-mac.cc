@@ -39,7 +39,6 @@ ClassAEndDeviceLorawanMac::GetTypeId()
 ClassAEndDeviceLorawanMac::ClassAEndDeviceLorawanMac()
     : // LoraWAN defaults
       m_receiveDelay1(Seconds(1)),
-      m_rx1DrOffset(0),
       m_receiveDelay2(Seconds(2)),
       m_busy(false)
 {
@@ -52,36 +51,6 @@ ClassAEndDeviceLorawanMac::ClassAEndDeviceLorawanMac()
 ClassAEndDeviceLorawanMac::~ClassAEndDeviceLorawanMac()
 {
     NS_LOG_FUNCTION_NOARGS();
-}
-
-uint8_t
-ClassAEndDeviceLorawanMac::GetFirstReceiveWindowDataRate()
-{
-    return m_replyDataRateMatrix.at(m_dataRate).at(m_rx1DrOffset);
-}
-
-void
-ClassAEndDeviceLorawanMac::SetSecondReceiveWindowDataRate(uint8_t dataRate)
-{
-    m_secondReceiveWindowDataRate = dataRate;
-}
-
-uint8_t
-ClassAEndDeviceLorawanMac::GetSecondReceiveWindowDataRate() const
-{
-    return m_secondReceiveWindowDataRate;
-}
-
-void
-ClassAEndDeviceLorawanMac::SetSecondReceiveWindowFrequency(uint32_t frequencyHz)
-{
-    m_secondReceiveWindowFrequencyHz = frequencyHz;
-}
-
-uint32_t
-ClassAEndDeviceLorawanMac::GetSecondReceiveWindowFrequency() const
-{
-    return m_secondReceiveWindowFrequencyHz;
 }
 
 Time

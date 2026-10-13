@@ -20,6 +20,15 @@
 
 // Include headers of classes to test
 #include "ns3/class-a-end-device-lorawan-mac.h"
+#include "ns3/class-b-end-device-lorawan-mac.h"
+#include "ns3/class-c-end-device-lorawan-mac.h"
+#include "ns3/end-device-status.h"
+#include "ns3/lora-helper.h"
+#include "ns3/lora-phy-helper.h"
+#include "ns3/lorawan-mac-helper.h"
+#include "ns3/mobility-model.h"
+#include "ns3/network-server.h"
+#include "ns3/network-status.h"
 
 using namespace ns3;
 using namespace lorawan;
@@ -328,6 +337,135 @@ LinkCheckTest::DoRun()
 /**
  * @ingroup lorawan
  *
+ * It verifies that the NetworkServer application correctly responds to PingSlotInfoReq
+ * requests from a Class B device with a PingSlotInfoAns.
+ */
+class PingSlotInfoTest : public TestCase
+{
+  public:
+    PingSlotInfoTest();           //!< Default constructor
+    ~PingSlotInfoTest() override; //!< Destructor
+
+    /**
+     * Trace callback for the end device's ReceivedPacket trace source, called whenever a
+     * downlink packet is correctly received at the MAC layer.
+     *
+     * @param packet The received packet.
+     */
+    void ReceivedPacket(Ptr<const Packet> packet);
+
+    /**
+     * Send a packet containing a PingSlotInfoReq MAC command from the input end device.
+     *
+     * @param endDevice A pointer to the end device Node.
+     */
+    void SendPacket(Ptr<Node> endDevice);
+
+  private:
+    void DoRun() override;
+    bool m_receivedPingSlotInfoAns =
+        false; //!< Set to true if a downlink carrying a PingSlotInfoAns MAC command is
+               //!< received by the end device
+};
+
+// Add some help text to this case to describe what it is intended to test
+PingSlotInfoTest::PingSlotInfoTest()
+    : TestCase("Verify that the NetworkServer application correctly responds to "
+               "PingSlotInfoReq requests")
+{
+}
+
+// Reminder that the test case should clean up after itself
+PingSlotInfoTest::~PingSlotInfoTest()
+{
+}
+
+void
+PingSlotInfoTest::ReceivedPacket(Ptr<const Packet> packet)
+{
+    NS_LOG_DEBUG("Received a downlink packet");
+
+    Ptr<Packet> myPacket = packet->Copy();
+    LorawanMacHeader mHdr;
+    LoraFrameHeader fHdr;
+    fHdr.SetAsDownlink();
+    myPacket->RemoveHeader(mHdr);
+    myPacket->RemoveHeader(fHdr);
+
+    if (fHdr.GetMacCommand<PingSlotInfoAns>())
+    {
+        m_receivedPingSlotInfoAns = true;
+    }
+}
+
+void
+PingSlotInfoTest::SendPacket(Ptr<Node> endDevice)
+{
+    Ptr<EndDeviceLorawanMac> macLayer = DynamicCast<EndDeviceLorawanMac>(
+        DynamicCast<LoraNetDevice>(endDevice->GetDevice(0))->GetMac());
+
+    macLayer->AddMacCommand(Create<PingSlotInfoReq>(6));
+
+    endDevice->GetDevice(0)->Send(Create<Packet>(20), Address(), 0);
+}
+
+// This method is the pure virtual method from class TestCase that every
+// TestCase must implement
+void
+PingSlotInfoTest::DoRun()
+{
+    NS_LOG_DEBUG("PingSlotInfoTest");
+
+    // Build a minimal one-ED (Class B), one-GW network, mirroring ClassCRegistrationTest's
+    // setup (CreateEndDevices() only supports ED_A).
+    Ptr<LoraChannel> channel = CreateChannel();
+
+    MobilityHelper mobility;
+    mobility.SetPositionAllocator("ns3::UniformDiscPositionAllocator",
+                                  "rho",
+                                  DoubleValue(1000),
+                                  "X",
+                                  DoubleValue(0.0),
+                                  "Y",
+                                  DoubleValue(0.0));
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+
+    NodeContainer endDevices;
+    endDevices.Create(1);
+    mobility.Install(endDevices);
+    LoraPhyHelper edPhyHelper;
+    edPhyHelper.SetChannel(channel);
+    edPhyHelper.SetDeviceType(LoraPhyHelper::ED);
+    LorawanMacHelper edMacHelper;
+    edMacHelper.SetDeviceType(LorawanMacHelper::ED_B);
+    LoraHelper().Install(edPhyHelper, edMacHelper, endDevices);
+
+    NodeContainer gateways = CreateGateways(1, mobility, channel);
+
+    Ptr<Node> nsNode = CreateNetworkServer(endDevices, gateways);
+
+    // Connect the end device's trace source for received downlink packets
+    DynamicCast<EndDeviceLorawanMac>(
+        DynamicCast<LoraNetDevice>(endDevices.Get(0)->GetDevice(0))->GetMac())
+        ->TraceConnectWithoutContext("ReceivedPacket",
+                                     MakeCallback(&PingSlotInfoTest::ReceivedPacket, this));
+
+    // Send a packet in uplink
+    Simulator::Schedule(Seconds(1), &PingSlotInfoTest::SendPacket, this, endDevices.Get(0));
+
+    Simulator::Stop(Seconds(10)); // Allow for time to receive a downlink packet at RX1/RX2
+    Simulator::Run();
+    Simulator::Destroy();
+
+    NS_TEST_EXPECT_MSG_EQ(m_receivedPingSlotInfoAns,
+                          true,
+                          "A PingSlotInfoAns should appear in the next reply after a "
+                          "PingSlotInfoReq is received");
+}
+
+/**
+ * @ingroup lorawan
+ *
  * It verifies that the NetworkServer application responds to uplinks with the ADRACKReq bit set
  */
 class AdrAckReqTest : public TestCase
@@ -394,6 +532,87 @@ AdrAckReqTest::DoRun()
 /**
  * @ingroup lorawan
  *
+ * It verifies that a Class C device can be registered with a NetworkServer application, tracked
+ * in its NetworkStatus, the same way a Class A device can.
+ */
+class ClassCRegistrationTest : public TestCase
+{
+  public:
+    ClassCRegistrationTest();           //!< Default constructor
+    ~ClassCRegistrationTest() override; //!< Destructor
+
+  private:
+    void DoRun() override;
+};
+
+ClassCRegistrationTest::ClassCRegistrationTest()
+    : TestCase("Verify that a Class C device can be registered with a NetworkServer")
+{
+}
+
+ClassCRegistrationTest::~ClassCRegistrationTest()
+{
+}
+
+void
+ClassCRegistrationTest::DoRun()
+{
+    NS_LOG_DEBUG("ClassCRegistrationTest");
+
+    // Build a minimal one-ED (Class C), one-GW network, mirroring InitializeNetwork() but with
+    // the end device configured as Class C instead of Class A (CreateEndDevices() only supports
+    // ED_A).
+    Ptr<LoraChannel> channel = CreateChannel();
+
+    MobilityHelper mobility;
+    mobility.SetPositionAllocator("ns3::UniformDiscPositionAllocator",
+                                  "rho",
+                                  DoubleValue(1000),
+                                  "X",
+                                  DoubleValue(0.0),
+                                  "Y",
+                                  DoubleValue(0.0));
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+
+    NodeContainer endDevices;
+    endDevices.Create(1);
+    mobility.Install(endDevices);
+    LoraPhyHelper edPhyHelper;
+    edPhyHelper.SetChannel(channel);
+    edPhyHelper.SetDeviceType(LoraPhyHelper::ED);
+    LorawanMacHelper edMacHelper;
+    edMacHelper.SetDeviceType(LorawanMacHelper::ED_C);
+    LoraHelper().Install(edPhyHelper, edMacHelper, endDevices);
+
+    NodeContainer gateways = CreateGateways(1, mobility, channel);
+
+    Ptr<Node> nsNode = CreateNetworkServer(endDevices, gateways);
+
+    Ptr<NetworkServer> app = DynamicCast<NetworkServer>(nsNode->GetApplication(0));
+    NS_TEST_ASSERT_MSG_NE(app, nullptr, "Failed to find the installed NetworkServer application");
+
+    Ptr<NetworkStatus> status = app->GetNetworkStatus();
+    NS_TEST_EXPECT_MSG_EQ(status->CountEndDevices(),
+                          1,
+                          "Expected exactly one device registered with the NetworkServer");
+
+    Ptr<ClassCEndDeviceLorawanMac> edMac =
+        GetMacLayerFromNode<ClassCEndDeviceLorawanMac>(endDevices.Get(0));
+    NS_TEST_ASSERT_MSG_NE(edMac, nullptr, "Failed to find the installed Class C MAC layer");
+
+    Ptr<EndDeviceStatus> edStatus = status->GetEndDeviceStatus(edMac->GetDeviceAddress());
+    NS_TEST_ASSERT_MSG_NE(edStatus,
+                          nullptr,
+                          "The Class C device should be tracked in the NetworkServer's "
+                          "NetworkStatus");
+    NS_TEST_EXPECT_MSG_NE(DynamicCast<ClassCEndDeviceLorawanMac>(edStatus->GetMac()),
+                          nullptr,
+                          "The tracked EndDeviceStatus should reference the Class C MAC");
+}
+
+/**
+ * @ingroup lorawan
+ *
  * The TestSuite class names the TestSuite, identifies what type of TestSuite, and enables the
  * TestCases to be run. Typically, only the constructor for this class must be defined
  */
@@ -425,7 +644,9 @@ NetworkServerTestSuite::NetworkServerTestSuite()
     AddTestCase(new UplinkPacketTest, Duration::QUICK);
     AddTestCase(new DownlinkPacketTest, Duration::QUICK);
     AddTestCase(new LinkCheckTest, Duration::QUICK);
+    AddTestCase(new PingSlotInfoTest, Duration::QUICK);
     AddTestCase(new AdrAckReqTest, Duration::QUICK);
+    AddTestCase(new ClassCRegistrationTest, Duration::QUICK);
 }
 
 // Do not forget to allocate an instance of this TestSuite

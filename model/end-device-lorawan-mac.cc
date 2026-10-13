@@ -103,6 +103,7 @@ EndDeviceLorawanMac::EndDeviceLorawanMac()
       m_codingRate(CodingRate::CR_4_5),
       m_headerDisabled(false),
       m_receiveWindowDurationInSymbols(8),
+      m_rx1DrOffset(0),
       m_lastRxSnr(32), // Max initial value
       m_fType(LorawanMacHeader::FType::UNCONFIRMED_DATA_UP),
       m_adr(true),
@@ -329,6 +330,36 @@ EndDeviceLorawanMac::GetUplinkFrameCounter() const
 {
     NS_LOG_FUNCTION(this);
     return m_fCnt;
+}
+
+void
+EndDeviceLorawanMac::SetSecondReceiveWindowDataRate(uint8_t dataRate)
+{
+    m_secondReceiveWindowDataRate = dataRate;
+}
+
+uint8_t
+EndDeviceLorawanMac::GetSecondReceiveWindowDataRate() const
+{
+    return m_secondReceiveWindowDataRate;
+}
+
+void
+EndDeviceLorawanMac::SetSecondReceiveWindowFrequency(uint32_t frequencyHz)
+{
+    m_secondReceiveWindowFrequencyHz = frequencyHz;
+}
+
+uint32_t
+EndDeviceLorawanMac::GetSecondReceiveWindowFrequency() const
+{
+    return m_secondReceiveWindowFrequencyHz;
+}
+
+uint8_t
+EndDeviceLorawanMac::GetFirstReceiveWindowDataRate()
+{
+    return m_replyDataRateMatrix.at(m_dataRate).at(m_rx1DrOffset);
 }
 
 void
@@ -576,6 +607,7 @@ EndDeviceLorawanMac::DoSend(Ptr<Packet> packet)
         LorawanMacHeader macHdr;
         packet->RemoveHeader(macHdr);
         LoraFrameHeader frameHdr;
+        frameHdr.SetAsUplink();
         packet->RemoveHeader(frameHdr);
     }
 
